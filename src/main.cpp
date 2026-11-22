@@ -15,7 +15,7 @@ namespace
 			util::report_and_fail("Failed to find standard logging directory"sv);
 		}
 
-		*path /= fmt::format("{}.log"sv, Plugin::NAME);
+		*path /= std::format("{}.log", Plugin::NAME);
 		auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true);
 #endif
 
@@ -38,11 +38,8 @@ static std::unique_ptr<PLH::VFuncSwapHook> g_player_character_hooks;
 static constexpr uint16_t g_speed_struct_offset = 8;
 static PLH::VFuncMap g_player_originals;
 
-#ifdef SKYRIM_POST_1_6_353
-static constexpr uint64_t g_actor_state_vtable_offset = 0xc0;
-#else
-static constexpr uint64_t g_actor_state_vtable_offset = 0xb8;
-#endif
+// ActorState's vtable sits at 0xB8 on SE and 0xC0 on AE (unchanged through 1.7.104).
+[[nodiscard]] static uint64_t actor_state_vtable_offset() noexcept { return REL::Relocate<uint64_t>(0xb8, 0xc0); }
 
 const SKSE::MessagingInterface* g_messaging = nullptr;
 
@@ -77,7 +74,7 @@ void AttachPlayerHooks() {
 
 	g_player_character_hooks.reset(
 		new PLH::VFuncSwapHook(
-			reinterpret_cast<uint64_t>(player_character) + g_actor_state_vtable_offset,
+			reinterpret_cast<uint64_t>(player_character) + actor_state_vtable_offset(),
 			redirects,
 			&g_player_originals
 		)
@@ -102,32 +99,8 @@ static void SKSEMessageHandler(SKSE::MessagingInterface::Message* message) {
 	}
 }
 
-extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface* q_skse, SKSE::PluginInfo* a_info) {
-	logger::info("Querying...");
-	a_info->infoVersion = SKSE::PluginInfo::kVersion;
-	a_info->name = std::string(Plugin::NAME).c_str();
-	a_info->version = 1;
-	logger::info("Plugin query successful.");
-	return true;
-}
 
-#ifdef SKYRIM_SUPPORT_AE
-extern "C" DLLEXPORT constinit auto SKSEPlugin_Version = []() {
-	SKSE::PluginVersionData v{};
-	v.PluginVersion(Plugin::VERSION);
-	v.PluginName(Plugin::NAME);
-#ifdef SKYRIM_POST_1_6_353
-	v.CompatibleVersions({ SKSE::RUNTIME_1_6_640 });
-	v.UsesAddressLibrary();
-#else
-	v.CompatibleVersions({ SKSE::RUNTIME_1_6_353 });
-	v.UsesAddressLibrary(true);
-#endif
-	return v;
-}();
-#endif
-
-extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface * a_skse) {
+SKSEPluginLoad(const SKSE::LoadInterface* a_skse) {
 	InitializeLog();
 	logger::info("{} v{}"sv, Plugin::NAME, Plugin::VERSION.string());
 	SKSE::Init(a_skse);
